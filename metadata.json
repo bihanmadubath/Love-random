@@ -1,0 +1,6 @@
+{
+  "name": "Love Random",
+  "description": "Real-time random phone-to-phone video chat connecting users automatically without codes, with camera controls, WebRTC P2P streaming, and Room DB.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

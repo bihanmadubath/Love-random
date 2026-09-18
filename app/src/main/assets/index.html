@@ -1,0 +1,1327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Love Random - Live Random Video Chat</title>
+  <meta name="theme-color" content="#0B0C10" />
+  <script src="paho-mqtt.min.js"></script>
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <style>
+    :root {
+      --primary: #EC5272;
+      --primary-grad: linear-gradient(135deg, #EC5272 0%, #FF758C 100%);
+      --bg: #0B0C10;
+      --card: rgba(26, 29, 41, 0.94);
+      --border: rgba(255, 255, 255, 0.12);
+      --text: #FFFFFF;
+      --muted: #9CA3AF;
+      --success: #10B981;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: var(--bg); color: var(--text); min-height: 100vh; display: flex; justify-content: center; }
+    #app { width: 100%; max-width: 480px; min-height: 100vh; display: flex; flex-direction: column; position: relative; background: #0B0C10; }
+    .glass { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 14px; }
+    .btn-main { background: var(--primary-grad); color: #FFF; border: none; padding: 12px 20px; border-radius: 28px; font-weight: 700; font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; box-shadow: 0 4px 18px rgba(236,82,114,0.4); }
+    .btn-sec { background: rgba(255,255,255,0.08); color: #FFF; border: 1px solid var(--border); padding: 8px 14px; border-radius: 20px; font-size: 12px; cursor: pointer; }
+    .screen { display: none; flex-direction: column; flex: 1; padding-bottom: 70px; overflow-y: auto; }
+    .screen.active { display: flex; }
+    .screen.no-nav { padding-bottom: 0; }
+    .top-status { background: rgba(255,255,255,0.04); border-bottom: 1px solid var(--border); padding: 8px 14px; font-size: 11px; display: flex; justify-content: space-between; align-items: center; color: var(--muted); }
+    .dot-live { width: 8px; height: 8px; border-radius: 50%; background: var(--success); display: inline-block; box-shadow: 0 0 8px var(--success); }
+    .avatar { width: 44px; height: 44px; border-radius: 50%; background-size: cover; background-position: center; border: 2px solid var(--primary); position: relative; flex-shrink: 0; }
+    .avatar .online { position: absolute; bottom: 0; right: 0; width: 10px; height: 10px; border-radius: 50%; background: var(--success); border: 2px solid #0B0C10; }
+    .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; max-width: 480px; margin: 0 auto; height: 60px; background: rgba(14,16,24,0.96); backdrop-filter: blur(16px); border-top: 1px solid var(--border); display: flex; justify-content: space-around; align-items: center; z-index: 50; }
+    .nav-btn { background: none; border: none; color: var(--muted); font-size: 11px; display: flex; flex-direction: column; align-items: center; gap: 3px; cursor: pointer; }
+    .nav-btn.active { color: var(--primary); }
+    /* Video call screen */
+    #screen-video-call { position: fixed; inset: 0; max-width: 480px; margin: 0 auto; background: #0B0D17; z-index: 9999; overflow: hidden; }
+    .remote-video-box { position: absolute; inset: 0; background: #111827; }
+    #remote-video { width: 100%; height: 100%; object-fit: cover; }
+    .local-pip { position: absolute; top: 64px; right: 14px; width: 100px; height: 140px; border-radius: 14px; border: 2px solid var(--primary); overflow: hidden; background: #181B26; z-index: 85; box-shadow: 0 4px 20px rgba(0,0,0,0.6); }
+    #local-video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+    .match-overlay { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 85%; max-width: 320px; background: rgba(11,12,16,0.95); border: 1.5px solid var(--primary); border-radius: 20px; padding: 22px; text-align: center; z-index: 80; backdrop-filter: blur(16px); }
+    .video-ctrls { position: absolute; bottom: 0; left: 0; right: 0; display: flex; justify-content: space-around; align-items: center; padding: 12px 10px 24px; background: linear-gradient(180deg, transparent 0%, rgba(11,13,23,0.95) 30%, #0B0D17 100%); z-index: 95; }
+    .ctrl-col { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+    .btn-circle { width: 48px; height: 48px; border-radius: 50%; background: rgba(30,34,50,0.9); border: 1.5px solid var(--border); color: #FFF; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+    .btn-circle.active-off { background: #EF4444; border-color: #F87171; }
+    .btn-skip { width: 62px; height: 62px; background: var(--primary-grad); border: 2px solid #FFF; box-shadow: 0 0 25px rgba(236,82,114,0.7); animation: pulse 2s infinite; }
+    @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+    .incall-chat { position: absolute; bottom: 90px; left: 12px; right: 12px; max-width: 380px; z-index: 80; display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
+    .incall-msgs { display: flex; flex-direction: column; gap: 6px; max-height: 100px; overflow-y: auto; pointer-events: auto; }
+    .incall-bubble { background: rgba(18,22,34,0.85); border: 1px solid var(--border); padding: 5px 12px; border-radius: 12px; font-size: 12px; align-self: flex-start; max-width: 80%; }
+    .incall-bubble.me { background: var(--primary); align-self: flex-end; }
+    .incall-input-bar { display: flex; gap: 6px; background: rgba(14,17,26,0.9); padding: 4px 6px 4px 12px; border-radius: 20px; border: 1px solid var(--border); pointer-events: auto; }
+    .incall-input { flex: 1; background: transparent; border: none; color: #FFF; font-size: 12px; outline: none; }
+    .toast { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: rgba(20,22,34,0.96); border: 1px solid var(--primary); padding: 10px 18px; border-radius: 12px; font-size: 12px; z-index: 99999; box-shadow: 0 4px 20px rgba(236,82,114,0.4); }
+    .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 200; display: none; align-items: center; justify-content: center; padding: 16px; }
+    .modal.active { display: flex; }
+    .modal-box { width: 100%; max-width: 400px; background: #141622; border: 1px solid var(--border); border-radius: 20px; padding: 20px; position: relative; }
+
+    /* Social Login Buttons & Login Page */
+    .btn-social { width: 100%; padding: 12px 16px; border-radius: 24px; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 10px; cursor: pointer; border: 1px solid var(--border); transition: transform 0.15s ease, opacity 0.15s ease; }
+    .btn-social:active { transform: scale(0.98); }
+    .btn-google { background: #FFFFFF; color: #1F2937; border-color: #E5E7EB; box-shadow: 0 4px 14px rgba(0,0,0,0.25); }
+    .btn-fb { background: #1877F2; color: #FFFFFF; border-color: #166FE5; box-shadow: 0 4px 14px rgba(24,119,242,0.3); }
+    .btn-apple { background: #000000; color: #FFFFFF; border-color: rgba(255,255,255,0.2); }
+    .btn-guest { background: rgba(255,255,255,0.08); color: #E2E8F0; border-color: var(--border); }
+    .filter-chip { padding: 5px 12px; border-radius: 16px; font-size: 11px; font-weight: 700; cursor: pointer; border: 1px solid var(--border); background: rgba(255,255,255,0.06); color: var(--muted); }
+    .filter-chip.active { background: var(--primary); color: #FFF; border-color: var(--primary); }
+    .admin-user-row { background: rgba(255,255,255,0.04); border: 1px solid var(--border); border-radius: 12px; padding: 10px; display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+<div id="toast-box"></div>
+<div id="app">
+  <!-- Top Real-Time Status -->
+  <div class="top-status">
+    <div style="display: flex; align-items: center; gap: 6px;">
+      <span class="dot-live" id="signal-dot"></span>
+      <span id="signal-label" style="color: #34D399; font-weight: 700;">Live P2P Signaling Online</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <span style="font-size: 10px; color: #38BDF8; font-weight: 700;" id="lobby-count-label">No Code Required</span>
+      <span style="color: #34D399; font-size: 10px; font-weight: 700; background: rgba(16,185,129,0.15); padding: 2px 6px; border-radius: 8px; cursor: pointer;" onclick="openModal('modal-health')">ROOM DB</span>
+    </div>
+  </div>
+
+  <!-- 0. LOGIN / SIGN-IN SCREEN (Displayed First) -->
+  <section id="screen-login" class="screen active no-nav" style="padding: 24px 20px; justify-content: space-between;">
+    <div>
+      <div style="text-align: center; margin-top: 20px; margin-bottom: 28px;">
+        <div style="width: 72px; height: 72px; border-radius: 50%; background: var(--primary-grad); display: flex; align-items: center; justify-content: center; margin: 0 auto 14px; box-shadow: 0 0 25px rgba(236,82,114,0.6);">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="white"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+        </div>
+        <h1 style="font-size: 26px; font-weight: 900; letter-spacing: -0.5px; background: linear-gradient(135deg, #FFF, #FF8FA3); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Love Random</h1>
+        <p style="font-size: 13px; color: var(--muted); margin-top: 6px;">Live random 1-on-1 video chats worldwide</p>
+      </div>
+
+      <!-- Social Login Buttons Container -->
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <!-- Gmail / Google Sign In -->
+        <button class="btn-social btn-google" onclick="performSocialLogin('Google')">
+          <svg width="18" height="18" viewBox="0 0 24 24">
+            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+          </svg>
+          <span>Continue with Gmail (Google)</span>
+        </button>
+
+        <!-- Facebook Sign In -->
+        <button class="btn-social btn-fb" onclick="performSocialLogin('Facebook')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="white">
+            <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+          </svg>
+          <span>Continue with Facebook</span>
+        </button>
+
+        <!-- Apple Sign In -->
+        <button class="btn-social btn-apple" onclick="performSocialLogin('Apple')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="white">
+            <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 6.37c.65-.79 1.09-1.89.97-2.99-1 .04-2.14.67-2.81 1.45-.58.67-1.1 1.77-.96 2.85 1.12.09 2.19-.57 2.8-1.31z"/>
+          </svg>
+          <span>Continue with Apple</span>
+        </button>
+
+        <!-- Quick Instant Login -->
+        <button class="btn-social btn-guest" onclick="performSocialLogin('Guest')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+          </svg>
+          <span>Continue as Guest</span>
+        </button>
+      </div>
+
+      <!-- Quick Divider -->
+      <div style="display: flex; align-items: center; gap: 12px; margin: 20px 0;">
+        <div style="flex: 1; height: 1px; background: var(--border);"></div>
+        <span style="font-size: 11px; color: var(--muted);">OR WITH EMAIL</span>
+        <div style="flex: 1; height: 1px; background: var(--border);"></div>
+      </div>
+
+      <!-- Custom Email/Username & Profile Setup -->
+      <div class="glass" style="display: flex; flex-direction: column; gap: 10px;">
+        <input type="text" id="login-username" placeholder="Your Display Name (e.g. Alex)" style="width: 100%; padding: 10px 14px; border-radius: 12px; background: rgba(255,255,255,0.06); border: 1px solid var(--border); color: #FFF; font-size: 13px; outline: none;" value="Alex Walker" />
+        <input type="email" id="login-email" placeholder="Email Address" style="width: 100%; padding: 10px 14px; border-radius: 12px; background: rgba(255,255,255,0.06); border: 1px solid var(--border); color: #FFF; font-size: 13px; outline: none;" value="alex@loverandom.com" />
+        <button class="btn-main" onclick="performEmailLogin()">
+          <span>Enter Live Video Chat</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Terms & Admin Footer Link -->
+    <div style="text-align: center; font-size: 11px; color: var(--muted); margin-top: 20px;">
+      <div>By continuing, you agree to our 18+ Community Terms &amp; Privacy Policy.</div>
+      <div style="margin-top: 10px;">
+        <span style="color: #A78BFA; cursor: pointer; text-decoration: underline;" onclick="openModal('modal-admin-login')">Super Admin Portal</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 1. DASHBOARD SCREEN -->
+  <section id="screen-dashboard" class="screen">
+    <div style="padding: 16px;">
+      <!-- Real-Time Auto-Connect Banner -->
+      <div class="glass" style="margin-bottom: 14px; background: linear-gradient(135deg, rgba(16,185,129,0.1), rgba(26,29,41,0.95)); border-color: rgba(52,211,153,0.4);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span class="dot-live"></span>
+            <span style="font-size: 12px; font-weight: 800; color: #34D399;">REAL PHONE-TO-PHONE READY</span>
+          </div>
+          <span style="font-size: 10px; background: rgba(56,189,248,0.2); color: #38BDF8; padding: 2px 6px; border-radius: 6px; font-weight: 700;">ZERO CODE</span>
+        </div>
+        <div style="font-size: 11px; color: var(--muted); line-height: 1.4;">
+          Automatic random phone matching. Tap <strong>GO LIVE</strong> on this phone and any other phone to connect immediately!
+        </div>
+      </div>
+
+      <!-- User Header -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px;">
+        <div style="display: flex; align-items: center; gap: 10px;" onclick="switchScreen('screen-profile')">
+          <div class="avatar" id="dash-avatar" style="background-image: url('https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80');">
+            <div class="online"></div>
+          </div>
+          <div>
+            <div style="font-weight: 700; font-size: 14px;" id="dash-name">Alex Walker, 23</div>
+            <div style="font-size: 11px; color: #FFD700; cursor: pointer;" onclick="event.stopPropagation(); openModal('modal-vip')">VIP Gold Pass &bull; Unlimited Calls</div>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px; background: rgba(16,185,129,0.12); padding: 4px 10px; border-radius: 16px; font-size: 11px; color: #34D399; font-weight: 700;">
+          <span class="dot-live"></span>
+          <span>Online</span>
+        </div>
+      </div>
+
+      <!-- Big Go Live Button -->
+      <div style="display: flex; flex-direction: column; align-items: center; margin: 24px 0;">
+        <div style="position: relative; width: 140px; height: 140px; display: flex; align-items: center; justify-content: center;">
+          <div style="position: absolute; inset: -15px; border-radius: 50%; border: 1.5px solid rgba(236,82,114,0.3); animation: pulse 2.5s infinite;"></div>
+          <button style="width: 120px; height: 120px; border-radius: 50%; background: var(--primary-grad); border: 4px solid rgba(255,255,255,0.3); color: #FFF; font-size: 18px; font-weight: 900; cursor: pointer; box-shadow: 0 0 35px rgba(236,82,114,0.7); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;" onclick="startRandomVideoMatch()">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="white"><path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg>
+            <span>GO LIVE</span>
+          </button>
+        </div>
+        <button class="btn-main" style="margin-top: 18px; max-width: 280px;" onclick="startRandomVideoMatch()">
+          RANDOM LIVE MATCH (NO CODE)
+        </button>
+        <div style="display: flex; gap: 8px; margin-top: 10px;">
+          <button class="btn-sec" onclick="testLocalCamPreview()">Test Camera</button>
+          <button class="btn-sec" onclick="requestHardwarePermissions()">Camera Permissions</button>
+          <button class="btn-sec" style="color: #38BDF8; border-color: rgba(56,189,248,0.4);" onclick="openModal('modal-code-backup')">Code Option</button>
+        </div>
+      </div>
+
+      <!-- Online Live Users Strip -->
+      <div style="margin-bottom: 18px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <span style="font-weight: 700; font-size: 13px;">Live Users Worldwide</span>
+          <span style="font-size: 11px; color: var(--primary); cursor: pointer;" onclick="switchScreen('screen-chats')">View All &gt;</span>
+        </div>
+        <div id="live-users-strip" style="display: flex; gap: 12px; overflow-x: auto; padding-bottom: 6px;"></div>
+      </div>
+
+      <!-- Quick Cards -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+        <div class="glass" style="cursor: pointer;" onclick="switchScreen('screen-chats')">
+          <div style="font-size: 18px;">💬</div>
+          <div style="font-weight: 700; font-size: 13px; margin-top: 4px;">Direct Messages</div>
+          <div style="font-size: 11px; color: var(--muted);">Room DB indexed</div>
+        </div>
+        <div class="glass" style="cursor: pointer; border-color: rgba(255,215,0,0.4);" onclick="openModal('modal-vip')">
+          <div style="font-size: 18px;">👑</div>
+          <div style="font-weight: 700; font-size: 13px; color: #FFD700; margin-top: 4px;">VIP Pass ($9.99)</div>
+          <div style="font-size: 11px; color: var(--muted);">Unlimited video</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. CHATS LIST SCREEN -->
+  <section id="screen-chats" class="screen">
+    <div style="padding: 14px 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+      <h2 style="font-size: 17px; font-weight: 700;">Active Conversations</h2>
+      <button class="btn-sec" onclick="renderChatsList()">Refresh</button>
+    </div>
+    <div id="chats-list" style="padding: 12px 16px; display: flex; flex-direction: column; gap: 8px;"></div>
+  </section>
+
+  <!-- 3. PROFILE SCREEN -->
+  <section id="screen-profile" class="screen">
+    <div style="padding: 20px 16px; text-align: center;">
+      <div class="avatar" id="profile-avatar" style="width: 76px; height: 76px; margin: 0 auto 12px; background-image: url('https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80');">
+        <div class="online"></div>
+      </div>
+      <h2 style="font-size: 18px; font-weight: 700;" id="profile-name">Alex Walker, 23</h2>
+      <div style="font-size: 12px; color: var(--muted);" id="profile-city">Colombo, Sri Lanka</div>
+
+      <div class="glass" style="margin-top: 20px; text-align: left; display: flex; flex-direction: column; gap: 12px;">
+        <div style="display: flex; justify-content: space-between; cursor: pointer;" onclick="openModal('modal-health')">
+          <span style="color: #34D399; font-weight: 600;">System Health &amp; Telemetry</span>
+          <span style="color: #34D399;">View &gt;</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; cursor: pointer; border-top: 1px solid var(--border); padding-top: 10px;" onclick="testLocalCamPreview()">
+          <span>Camera Hardware Test</span>
+          <span style="color: #34D399;">Launch &gt;</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; cursor: pointer; border-top: 1px solid var(--border); padding-top: 10px;" onclick="openAdminPortalModal()">
+          <span style="color: #A78BFA; font-weight: 600;">Admin Control Panel</span>
+          <span style="color: #A78BFA;">Sign In &gt;</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; cursor: pointer; border-top: 1px solid var(--border); padding-top: 10px;" onclick="performLogout()">
+          <span style="color: #F87171; font-weight: 600;">Log Out</span>
+          <span style="color: #F87171;">Exit &gt;</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. LIVE VIDEO CALL SCREEN (FULL SCREEN) -->
+  <section id="screen-video-call" class="screen no-nav">
+    <!-- Remote Video -->
+    <div class="remote-video-box">
+      <video id="remote-video" autoplay playsinline></video>
+      <canvas id="remote-canvas" width="480" height="854" style="width: 100%; height: 100%; object-fit: cover; display: none;"></canvas>
+    </div>
+
+    <!-- Top Bar: Timer, Partner Info & Exit Button -->
+    <div style="position: absolute; top: 14px; left: 14px; right: 14px; z-index: 90; display: flex; justify-content: space-between; align-items: center; pointer-events: none;">
+      <div style="background: rgba(11,12,16,0.85); backdrop-filter: blur(12px); padding: 6px 12px; border-radius: 20px; border: 1px solid var(--border); display: flex; align-items: center; gap: 6px; pointer-events: auto;">
+        <span class="dot-live"></span>
+        <span id="call-timer" style="font-size: 12px; font-weight: 700;">Unlimited 00:00</span>
+        <span id="call-status-badge" style="font-size: 10px; background: rgba(16,185,129,0.2); color: #34D399; padding: 1px 6px; border-radius: 6px; font-weight: 700;">CONNECTING</span>
+      </div>
+      <button style="background: rgba(220,38,38,0.9); color: #FFF; border: 1.5px solid #F87171; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 700; cursor: pointer; pointer-events: auto; backdrop-filter: blur(10px);" onclick="leaveVideoCall()">
+        Exit Live
+      </button>
+    </div>
+
+    <!-- Live Partner Info Pill -->
+    <div id="partner-pill" style="position: absolute; top: 54px; left: 14px; z-index: 85; background: rgba(11,13,23,0.85); backdrop-filter: blur(12px); padding: 4px 12px; border-radius: 16px; border: 1px solid var(--border); display: flex; align-items: center; gap: 6px; pointer-events: none;">
+      <span style="width: 7px; height: 7px; border-radius: 50%; background: #34D399;"></span>
+      <span id="partner-name-txt" style="font-size: 11px; font-weight: 700;">Searching for Live Phone...</span>
+    </div>
+
+    <!-- Matchmaking Overlay (Shown while searching) -->
+    <div class="match-overlay" id="match-overlay">
+      <div class="dot-live" style="width: 14px; height: 14px; margin: 0 auto 10px;"></div>
+      <h3 style="font-size: 16px; font-weight: 800; margin-bottom: 4px;" id="match-title">Searching for Live Phone...</h3>
+      <p style="font-size: 11px; color: var(--muted); margin-bottom: 14px; line-height: 1.4;" id="match-subtitle">
+        Zero code required. Connects automatically when another phone taps GO LIVE!
+      </p>
+
+      <div style="background: rgba(255,255,255,0.06); padding: 8px; border-radius: 10px; font-size: 11px; font-family: monospace; color: #38BDF8; text-align: left; margin-bottom: 12px;">
+        <div>&bull; Signaling: <span id="diag-sig" style="color: #34D399;">Connected</span></div>
+        <div>&bull; Mode: <span style="color: #FFD700;">Auto Matchmaking</span></div>
+        <div>&bull; Status: <span id="diag-status" style="color: #FFF;">In pool</span></div>
+      </div>
+
+      <div style="display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;">
+        <button class="btn-main" style="padding: 8px 14px; font-size: 12px; width: auto;" onclick="nextVideoMatch()">Skip / Retry</button>
+        <button class="btn-sec" style="font-size: 12px;" onclick="simulateSoloMatchTest()">Test with Demo Partner</button>
+        <button class="btn-sec" style="color: #EF4444; border-color: rgba(239,68,68,0.4); font-size: 12px;" onclick="leaveVideoCall()">Exit</button>
+      </div>
+    </div>
+
+    <!-- Local Camera PiP -->
+    <div class="local-pip" id="local-pip">
+      <video id="local-video" autoplay playsinline muted></video>
+      <canvas id="local-canvas" width="100" height="140" style="display: none;"></canvas>
+      <div id="cam-off-badge" style="display: none; position: absolute; inset: 0; background: rgba(14,16,26,0.95); display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; color: #EF4444;">CAMERA OFF</div>
+      <div style="position: absolute; bottom: 0; left: 0; right: 0; text-align: center; font-size: 9px; padding: 2px; background: rgba(0,0,0,0.6);">You</div>
+    </div>
+
+    <!-- In-Call Instant Chat -->
+    <div class="incall-chat">
+      <div class="incall-msgs" id="incall-msgs"></div>
+      <div class="incall-input-bar">
+        <input type="text" id="incall-input" class="incall-input" placeholder="Send P2P message..." onkeydown="if(event.key==='Enter') sendInCallMsg()" />
+        <button style="background: var(--primary); border: none; color: #FFF; width: 28px; height: 28px; border-radius: 50%; cursor: pointer;" onclick="sendInCallMsg()">&gt;</button>
+      </div>
+    </div>
+
+    <!-- Bottom Video Controls -->
+    <div class="video-ctrls">
+      <div class="ctrl-col" onclick="toggleMic()">
+        <button class="btn-circle" id="btn-mic">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5-3c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-2.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+        </button>
+        <span style="font-size: 10px; color: #FFF;" id="lbl-mic">Mute</span>
+      </div>
+
+      <div class="ctrl-col" onclick="toggleCam()">
+        <button class="btn-circle" id="btn-cam">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg>
+        </button>
+        <span style="font-size: 10px; color: #FFF;" id="lbl-cam">Camera</span>
+      </div>
+
+      <!-- Big Skip / Next Button (Changes random match instantly) -->
+      <div class="ctrl-col" onclick="nextVideoMatch()">
+        <button class="btn-circle btn-skip">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="white"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+        </button>
+        <span style="font-size: 10px; font-weight: 800; color: #FF8FA3;">SKIP NEXT</span>
+      </div>
+
+      <div class="ctrl-col" onclick="flipCam()">
+        <button class="btn-circle">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M9.01 14H2v2h7.01v3L13 15l-3.99-4v3zm5.98-1v-3H22V8h-7.01V5L11 9l3.99 4z"/></svg>
+        </button>
+        <span style="font-size: 10px; color: #FFF;">Flip</span>
+      </div>
+
+      <div class="ctrl-col" onclick="leaveVideoCall()">
+        <button class="btn-circle" style="background: #DC2626; border-color: #EF4444;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08c-.18-.17-.29-.42-.29-.7 0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/></svg>
+        </button>
+        <span style="font-size: 10px; color: #EF4444; font-weight: 700;">Exit</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Bottom Navigation -->
+  <nav class="bottom-nav" id="main-nav">
+    <button class="nav-btn active" id="nav-btn-live" onclick="switchScreen('screen-dashboard')">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg>
+      <span>Live</span>
+    </button>
+    <button class="nav-btn" id="nav-btn-chats" onclick="switchScreen('screen-chats')">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
+      <span>Chats</span>
+    </button>
+    <button class="nav-btn" id="nav-btn-profile" onclick="switchScreen('screen-profile')">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+      <span>Profile</span>
+    </button>
+  </nav>
+</div>
+
+<!-- Modal: System Health Telemetry -->
+<div class="modal" id="modal-health">
+  <div class="modal-box">
+    <button style="position: absolute; top: 12px; right: 12px; background: none; border: none; color: #FFF; font-size: 18px; cursor: pointer;" onclick="closeModal('modal-health')">&times;</button>
+    <h3 style="color: #34D399; font-size: 15px; margin-bottom: 8px;">System Health &amp; Room DB Telemetry</h3>
+    <p style="font-size: 11px; color: var(--muted); margin-bottom: 12px;">Real-time query duration and APM telemetry tracked via Room database.</p>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px;">
+      <div class="glass" style="text-align: center;">
+        <div style="font-size: 10px; color: var(--muted);">Avg Query Latency</div>
+        <div style="font-size: 18px; font-weight: 800; color: #34D399;" id="apm-lat">1.18 ms</div>
+      </div>
+      <div class="glass" style="text-align: center;">
+        <div style="font-size: 10px; color: var(--muted);">Memory Pressure</div>
+        <div style="font-size: 18px; font-weight: 800; color: #60A5FA;" id="apm-mem">Healthy (25%)</div>
+      </div>
+    </div>
+    <button class="btn-sec" style="width: 100%;" onclick="refreshNativeTelemetry()">Refresh Stats</button>
+  </div>
+</div>
+
+<!-- Modal: VIP Gold -->
+<div class="modal" id="modal-vip">
+  <div class="modal-box" style="text-align: center;">
+    <button style="position: absolute; top: 12px; right: 12px; background: none; border: none; color: #FFF; font-size: 18px; cursor: pointer;" onclick="closeModal('modal-vip')">&times;</button>
+    <div style="font-size: 32px; margin-bottom: 8px;">👑</div>
+    <h3 style="color: #FFD700; font-size: 18px; margin-bottom: 6px;">VIP Gold Membership</h3>
+    <p style="font-size: 12px; color: var(--muted); margin-bottom: 16px;">Unlimited real phone-to-phone video calls with priority random matchmaking.</p>
+    <button class="btn-main" style="background: linear-gradient(135deg, #F59E0B, #D97706); color: #000;" onclick="showToast('VIP Activated!'); closeModal('modal-vip');">Activate VIP ($9.99/mo)</button>
+  </div>
+</div>
+
+<!-- Modal: Optional Manual Code Backup (kept for convenience) -->
+<div class="modal" id="modal-code-backup">
+  <div class="modal-box">
+    <button style="position: absolute; top: 12px; right: 12px; background: none; border: none; color: #FFF; font-size: 18px; cursor: pointer;" onclick="closeModal('modal-code-backup')">&times;</button>
+    <h3 style="font-size: 15px; margin-bottom: 6px;">Optional Direct Code Call</h3>
+    <p style="font-size: 11px; color: var(--muted); margin-bottom: 12px;">Random matching already connects automatically without a code! You can also type a specific phone's code below if desired.</p>
+    <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 10px; text-align: center; margin-bottom: 12px;">
+      <div style="font-size: 10px; color: var(--muted);">YOUR DEVICE CODE:</div>
+      <div id="my-direct-code" style="font-size: 24px; font-weight: 800; color: #FF8FA3; letter-spacing: 2px;">---</div>
+    </div>
+    <input type="text" id="target-code-input" placeholder="Enter target 4-digit code" style="width: 100%; padding: 10px; border-radius: 10px; background: rgba(255,255,255,0.06); border: 1px solid var(--border); color: #FFF; text-align: center; margin-bottom: 12px;" />
+    <button class="btn-main" onclick="callByManualCode()">Call Specific Code</button>
+  </div>
+</div>
+
+<!-- Modal: Admin Login -->
+<div class="modal" id="modal-admin-login">
+  <div class="modal-box">
+    <button style="position: absolute; top: 12px; right: 12px; background: none; border: none; color: #FFF; font-size: 18px; cursor: pointer;" onclick="closeModal('modal-admin-login')">&times;</button>
+    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+      <span style="font-size: 20px;">🛡️</span>
+      <h3 style="font-size: 16px; font-weight: 800;">Admin Authentication</h3>
+    </div>
+    <p style="font-size: 11px; color: var(--muted); margin-bottom: 14px;">Secure system administrator access.</p>
+    <input type="password" id="admin-pwd-input" placeholder="Enter administrator password" style="width: 100%; padding: 12px 14px; border-radius: 12px; background: rgba(255,255,255,0.06); border: 1px solid var(--border); color: #FFF; margin-bottom: 14px; font-size: 13px; outline: none;" onkeydown="if(event.key==='Enter') verifyAdminPassword()" />
+    <button class="btn-main" onclick="verifyAdminPassword()">Verify &amp; Enter Admin Panel</button>
+  </div>
+</div>
+
+<!-- Modal: Admin Control Panel (Filter Users, See Live Users) -->
+<div class="modal" id="modal-admin-panel">
+  <div class="modal-box" style="max-width: 440px; max-height: 85vh; display: flex; flex-direction: column;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="font-size: 18px;">🛡️</span>
+        <div>
+          <h3 style="font-size: 15px; font-weight: 800; color: #A78BFA;">Admin Live Supervisor</h3>
+          <div style="font-size: 10px; color: var(--muted);">Moderation &amp; User Database Panel</div>
+        </div>
+      </div>
+      <button style="background: none; border: none; color: #FFF; font-size: 20px; cursor: pointer;" onclick="closeModal('modal-admin-panel')">&times;</button>
+    </div>
+
+    <!-- Filter chips -->
+    <div style="display: flex; gap: 6px; margin-bottom: 12px; overflow-x: auto; padding-bottom: 2px;">
+      <button class="filter-chip active" id="chip-all" onclick="setAdminFilter('all')">All Users (<span id="count-all">0</span>)</button>
+      <button class="filter-chip" id="chip-live" onclick="setAdminFilter('live')">Live Now (<span id="count-live">0</span>)</button>
+      <button class="filter-chip" id="chip-active" onclick="setAdminFilter('active')">Active (<span id="count-active">0</span>)</button>
+      <button class="filter-chip" id="chip-banned" onclick="setAdminFilter('banned')">Banned (<span id="count-banned">0</span>)</button>
+    </div>
+
+    <!-- User List Container -->
+    <div id="admin-users-list" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; max-height: 380px; padding-right: 4px;">
+      <div style="text-align: center; color: var(--muted); font-size: 12px; padding: 20px;">Loading users...</div>
+    </div>
+
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; pt: 10px; border-top: 1px solid var(--border); font-size: 11px;">
+      <span style="color: #34D399; font-weight: 700;" id="admin-live-indicator">&bull; Live Sync Active</span>
+      <button class="btn-sec" style="font-size: 11px; padding: 4px 10px;" onclick="loadAdminUsers()">Refresh</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // =========================================================================
+  // ZERO-CODE REAL PHONE-TO-PHONE RANDOM WEBRTC MATCHMAKING ENGINE
+  // =========================================================================
+  let myPeerId = null;
+  let myShortCode = null;
+  let peer = null;
+  let mqttClient = null;
+  let localStream = null;
+  let activeMediaCall = null;
+  let activeDataConn = null;
+  let callTimerInterval = null;
+  let callSeconds = 0;
+  let isMicMuted = false;
+  let isCamMuted = false;
+  let currentFacing = 'user';
+  let isSeeking = false;
+  let isSoloSimulation = false;
+  let simulationAnimId = null;
+
+  const myUser = {
+    id: 'u_' + Math.random().toString(36).substring(2, 8),
+    name: 'Alex Walker',
+    age: 23,
+    city: 'Colombo, Sri Lanka'
+  };
+
+  const sampleUsers = [
+    { name: 'Elena', age: 24, city: 'Rome, Italy', avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=120&auto=format&fit=crop&q=80' },
+    { name: 'Maya', age: 22, city: 'Paris, France', avatar: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=120&auto=format&fit=crop&q=80' },
+    { name: 'Sofia', age: 25, city: 'Barcelona, Spain', avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120&auto=format&fit=crop&q=80' },
+    { name: 'Chloe', age: 21, city: 'London, UK', avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80' }
+  ];
+
+  // 1. Initialize PeerJS WebRTC
+  function initWebRTC() {
+    myShortCode = Math.floor(1000 + Math.random() * 9000).toString();
+    myPeerId = 'loverandom-' + myShortCode;
+    const codeEl = document.getElementById('my-direct-code');
+    if (codeEl) codeEl.innerText = myShortCode;
+
+    try {
+      peer = new Peer(myPeerId, {
+        config: {
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' },
+            { urls: 'stun:stun.cloudflare.com:3478' }
+          ]
+        }
+      });
+
+      peer.on('open', (id) => {
+        console.log('PeerJS online! ID:', id);
+        updateSignalStatus(true);
+      });
+
+      // Handle incoming real call from another phone
+      peer.on('call', async (incomingCall) => {
+        console.log('Incoming real phone call from:', incomingCall.peer);
+        if (!localStream) await startLocalCamera();
+        activeMediaCall = incomingCall;
+        incomingCall.answer(localStream);
+        bindMediaCall(incomingCall, 'Live Partner');
+      });
+
+      // Handle incoming direct P2P data channel
+      peer.on('connection', (conn) => {
+        activeDataConn = conn;
+        bindDataChannel(conn);
+      });
+
+      peer.on('error', (err) => {
+        console.warn('Peer error:', err);
+        if (err.type === 'unavailable-id') {
+          setTimeout(initWebRTC, 1000);
+        }
+      });
+    } catch (e) {
+      console.warn('WebRTC init error:', e);
+    }
+  }
+
+  // 2. Initialize Real-Time Auto-Matchmaking via MQTT
+  const LOBBY_TOPIC = 'loverandom/v2/matchmaking/pool';
+  function initMQTTMatchmaking() {
+    if (typeof Paho === 'undefined' || !Paho.MQTT) {
+      console.warn('Paho MQTT not loaded yet, retrying...');
+      setTimeout(initMQTTMatchmaking, 500);
+      return;
+    }
+    try {
+      const clientId = 'lr-client-' + myShortCode + '-' + Math.random().toString(36).substring(2, 6);
+      mqttClient = new Paho.MQTT.Client('broker.emqx.io', 8084, '/mqtt', clientId);
+
+      mqttClient.onConnectionLost = (resp) => {
+        console.warn('MQTT Connection lost:', resp.errorMessage);
+        updateSignalStatus(false);
+        setTimeout(initMQTTMatchmaking, 2000);
+      };
+
+      mqttClient.onMessageArrived = (msg) => {
+        handleMatchmakingMessage(msg);
+      };
+
+      mqttClient.connect({
+        useSSL: true,
+        timeout: 5,
+        keepAliveInterval: 30,
+        onSuccess: () => {
+          console.log('Connected to Auto-Matchmaking Signaling Broker!');
+          updateSignalStatus(true);
+          mqttClient.subscribe(LOBBY_TOPIC, { qos: 0 });
+          mqttClient.subscribe('loverandom/v2/peer/' + myPeerId, { qos: 0 });
+        },
+        onFailure: (err) => {
+          console.warn('MQTT Connect failed, trying fallback broker:', err);
+          updateSignalStatus(false);
+        }
+      });
+    } catch(e) {
+      console.warn('MQTT init exception:', e);
+    }
+  }
+
+  function updateSignalStatus(isOnline) {
+    const dot = document.getElementById('signal-dot');
+    const lbl = document.getElementById('signal-label');
+    const diag = document.getElementById('diag-sig');
+    if (dot) dot.style.background = isOnline ? '#10B981' : '#EF4444';
+    if (lbl) lbl.innerText = isOnline ? 'Live P2P Signaling Online' : 'Connecting Signaling...';
+    if (diag) diag.innerText = isOnline ? 'Connected (Zero-Code)' : 'Reconnecting';
+  }
+
+  // 3. Matchmaking Message Handler (Zero-Code Auto Pairing)
+  function handleMatchmakingMessage(msg) {
+    try {
+      const data = JSON.parse(msg.payloadString);
+      if (!data || data.peerId === myPeerId) return; // Ignore own messages
+
+      // If we are currently seeking a match
+      if (isSeeking && !activeMediaCall) {
+        if (data.type === 'seeking') {
+          // Deterministic tie-breaker: the phone with lexicographically larger peerId initiates the call
+          if (myPeerId > data.peerId) {
+            console.log('I am caller. Calling matched phone:', data.peerId);
+            initiateCallToMatchedPeer(data.peerId, data.name || 'Live Partner');
+            // Broadcast that we claimed this match
+            broadcastMatchClaim(data.peerId);
+          }
+        } else if (data.type === 'match_claim' && data.targetPeerId === myPeerId) {
+          // Another phone matched with us, wait for incoming call
+          document.getElementById('match-title').innerText = 'Partner Found!';
+          document.getElementById('match-subtitle').innerText = 'Incoming connection from ' + (data.callerName || 'Live Phone') + '...';
+        }
+      }
+    } catch(e) {
+      console.warn('Error parsing matchmaking message:', e);
+    }
+  }
+
+  function broadcastSeeking() {
+    if (!mqttClient || !mqttClient.isConnected()) return;
+    const payload = JSON.stringify({
+      type: 'seeking',
+      peerId: myPeerId,
+      name: myUser.name,
+      city: myUser.city,
+      timestamp: Date.now()
+    });
+    const message = new Paho.MQTT.Message(payload);
+    message.destinationName = LOBBY_TOPIC;
+    mqttClient.send(message);
+  }
+
+  function broadcastMatchClaim(targetPeerId) {
+    if (!mqttClient || !mqttClient.isConnected()) return;
+    const payload = JSON.stringify({
+      type: 'match_claim',
+      callerPeerId: myPeerId,
+      callerName: myUser.name,
+      targetPeerId: targetPeerId,
+      timestamp: Date.now()
+    });
+    const message = new Paho.MQTT.Message(payload);
+    message.destinationName = LOBBY_TOPIC;
+    mqttClient.send(message);
+  }
+
+  // 4. Start Random Video Match (No Code Required!)
+  async function startRandomVideoMatch() {
+    switchScreen('screen-video-call');
+    document.getElementById('match-overlay').style.display = 'block';
+    document.getElementById('match-title').innerText = 'Searching for Live Phone...';
+    document.getElementById('match-subtitle').innerText = 'Zero code required. Connects automatically when another phone taps GO LIVE!';
+    document.getElementById('diag-status').innerText = 'Broadcasting in pool...';
+    
+    isSeeking = true;
+    isSoloSimulation = false;
+    stopSimulationCanvas();
+
+    await startLocalCamera();
+    broadcastSeeking();
+
+    // Re-announce seeking every 2.5s while waiting
+    let attempts = 0;
+    const seekInterval = setInterval(() => {
+      if (!isSeeking || activeMediaCall) {
+        clearInterval(seekInterval);
+        return;
+      }
+      attempts++;
+      broadcastSeeking();
+      if (attempts >= 3) {
+        document.getElementById('match-subtitle').innerText = 'Still waiting for another phone... (Open app on phone 2 or browser to connect!)';
+      }
+    }, 2500);
+  }
+
+  // Call target peer
+  async function initiateCallToMatchedPeer(targetPeerId, partnerName) {
+    isSeeking = false;
+    document.getElementById('match-title').innerText = 'Connecting to ' + partnerName + '...';
+    document.getElementById('match-subtitle').innerText = 'Direct WebRTC P2P Stream establishing...';
+
+    if (!localStream) await startLocalCamera();
+
+    if (peer) {
+      activeDataConn = peer.connect(targetPeerId);
+      bindDataChannel(activeDataConn);
+
+      activeMediaCall = peer.call(targetPeerId, localStream);
+      bindMediaCall(activeMediaCall, partnerName);
+    }
+  }
+
+  // Bind WebRTC call stream events
+  function bindMediaCall(call, partnerName) {
+    call.on('stream', (remoteStream) => {
+      console.log('Direct real remote phone stream received!', remoteStream);
+      isSeeking = false;
+      document.getElementById('match-overlay').style.display = 'none';
+      
+      const remoteVideo = document.getElementById('remote-video');
+      const remoteCanvas = document.getElementById('remote-canvas');
+      if (remoteVideo) {
+        remoteVideo.srcObject = remoteStream;
+        remoteVideo.style.display = 'block';
+        remoteVideo.play().catch(e => console.warn(e));
+      }
+      if (remoteCanvas) remoteCanvas.style.display = 'none';
+
+      document.getElementById('partner-name-txt').innerText = partnerName + ' (Real Phone Connected)';
+      document.getElementById('call-status-badge').innerText = 'P2P LIVE';
+      document.getElementById('call-status-badge').style.background = 'rgba(16,185,129,0.2)';
+      document.getElementById('call-status-badge').style.color = '#34D399';
+
+      startCallTimer();
+      showToast('Real Phone-to-Phone Connected!');
+    });
+
+    call.on('close', () => {
+      showToast('Partner disconnected');
+      nextVideoMatch();
+    });
+
+    call.on('error', (err) => {
+      console.warn('Call error:', err);
+      showToast('Connection note: ' + err);
+    });
+  }
+
+  function bindDataChannel(conn) {
+    conn.on('data', (data) => {
+      if (data && data.text) {
+        addInCallBubble(data.sender || 'Partner', data.text, false);
+      }
+    });
+  }
+
+  // 5. Skip to Next Partner Randomly
+  function nextVideoMatch() {
+    showToast('Skipping to next random match...');
+    if (activeMediaCall) {
+      try { activeMediaCall.close(); } catch(e) {}
+      activeMediaCall = null;
+    }
+    if (activeDataConn) {
+      try { activeDataConn.close(); } catch(e) {}
+      activeDataConn = null;
+    }
+    const remoteVideo = document.getElementById('remote-video');
+    if (remoteVideo) remoteVideo.srcObject = null;
+
+    stopSimulationCanvas();
+    startRandomVideoMatch();
+  }
+
+  // Fallback demo simulator for solo device testing
+  function simulateSoloMatchTest() {
+    isSoloSimulation = true;
+    isSeeking = false;
+    document.getElementById('match-overlay').style.display = 'none';
+    const partner = sampleUsers[Math.floor(Math.random() * sampleUsers.length)];
+    document.getElementById('partner-name-txt').innerText = partner.name + ', ' + partner.age + ' (' + partner.city + ')';
+    document.getElementById('call-status-badge').innerText = 'TEST LIVE';
+    
+    // Draw animated live simulation on remote canvas
+    const canvas = document.getElementById('remote-canvas');
+    const remoteVideo = document.getElementById('remote-video');
+    if (remoteVideo) remoteVideo.style.display = 'none';
+    if (canvas) {
+      canvas.style.display = 'block';
+      startSimulationCanvas(partner.name);
+    }
+    startCallTimer();
+    showToast('Demo Partner matched! Tap "SKIP NEXT" to change randomly.');
+  }
+
+  function startSimulationCanvas(name) {
+    const canvas = document.getElementById('remote-canvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    let t = 0;
+    function draw() {
+      t += 0.03;
+      ctx.fillStyle = '#0B0D17';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Ambient dynamic gradient
+      const grad = ctx.createRadialGradient(canvas.width/2, canvas.height/2 + Math.sin(t)*30, 20, canvas.width/2, canvas.height/2, 260);
+      grad.addColorStop(0, 'rgba(236, 82, 114, 0.45)');
+      grad.addColorStop(1, 'rgba(11, 13, 23, 0.95)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Face silhouette avatar
+      ctx.fillStyle = '#1E2333';
+      ctx.beginPath();
+      ctx.arc(canvas.width / 2, canvas.height / 2 - 30, 70, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#FFF';
+      ctx.font = 'bold 20px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(name, canvas.width / 2, canvas.height / 2 + 80);
+
+      ctx.font = '13px sans-serif';
+      ctx.fillStyle = '#34D399';
+      ctx.fillText('Live Video Stream Active', canvas.width / 2, canvas.height / 2 + 105);
+
+      simulationAnimId = requestAnimationFrame(draw);
+    }
+    draw();
+  }
+
+  function stopSimulationCanvas() {
+    if (simulationAnimId) {
+      cancelAnimationFrame(simulationAnimId);
+      simulationAnimId = null;
+    }
+    const canvas = document.getElementById('remote-canvas');
+    if (canvas) canvas.style.display = 'none';
+    const remoteVideo = document.getElementById('remote-video');
+    if (remoteVideo) remoteVideo.style.display = 'block';
+  }
+
+  // 6. Camera & Audio Hardware Management
+  async function startLocalCamera() {
+    stopLocalCamera();
+    const videoEl = document.getElementById('local-video');
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      try {
+        localStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: currentFacing, width: { ideal: 640 }, height: { ideal: 480 } },
+          audio: true
+        });
+      } catch (e1) {
+        try {
+          localStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: currentFacing } });
+        } catch (e2) {
+          console.warn('Camera hardware getUserMedia error:', e2);
+        }
+      }
+      if (localStream && videoEl) {
+        videoEl.srcObject = localStream;
+        videoEl.style.transform = (currentFacing === 'user') ? 'scaleX(-1)' : 'none';
+        videoEl.style.display = isCamMuted ? 'none' : 'block';
+        videoEl.play().catch(e => console.warn(e));
+        return;
+      }
+    }
+    // Fallback: draw placeholder on local canvas
+    const canvas = document.getElementById('local-canvas');
+    if (canvas) {
+      canvas.style.display = 'block';
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#1A1D29';
+      ctx.fillRect(0,0, canvas.width, canvas.height);
+      ctx.fillStyle = '#EC5272';
+      ctx.font = '11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Local Cam', canvas.width/2, canvas.height/2);
+    }
+  }
+
+  function stopLocalCamera() {
+    if (localStream) {
+      try { localStream.getTracks().forEach(t => t.stop()); } catch(e) {}
+      localStream = null;
+    }
+    const videoEl = document.getElementById('local-video');
+    if (videoEl) videoEl.srcObject = null;
+  }
+
+  function testLocalCamPreview() {
+    switchScreen('screen-video-call');
+    document.getElementById('match-overlay').style.display = 'none';
+    document.getElementById('partner-name-txt').innerText = 'Local Camera Test Feed';
+    document.getElementById('call-status-badge').innerText = 'PREVIEW';
+    startLocalCamera();
+    showToast('Testing camera preview. Tap Exit when done.');
+  }
+
+  function toggleMic() {
+    isMicMuted = !isMicMuted;
+    if (localStream) {
+      localStream.getAudioTracks().forEach(t => t.enabled = !isMicMuted);
+    }
+    const btn = document.getElementById('btn-mic');
+    const lbl = document.getElementById('lbl-mic');
+    if (isMicMuted) {
+      btn?.classList.add('active-off');
+      if (lbl) lbl.innerText = 'Unmute';
+      showToast('Microphone Muted');
+    } else {
+      btn?.classList.remove('active-off');
+      if (lbl) lbl.innerText = 'Mute';
+      showToast('Microphone Active');
+    }
+  }
+
+  function toggleCam() {
+    isCamMuted = !isCamMuted;
+    if (localStream) {
+      localStream.getVideoTracks().forEach(t => t.enabled = !isCamMuted);
+    }
+    const btn = document.getElementById('btn-cam');
+    const video = document.getElementById('local-video');
+    const offOverlay = document.getElementById('cam-off-badge');
+    if (isCamMuted) {
+      btn?.classList.add('active-off');
+      if (video) video.style.display = 'none';
+      if (offOverlay) offOverlay.style.display = 'flex';
+      showToast('Camera Off');
+    } else {
+      btn?.classList.remove('active-off');
+      if (video) video.style.display = 'block';
+      if (offOverlay) offOverlay.style.display = 'none';
+      showToast('Camera Active');
+    }
+  }
+
+  async function flipCam() {
+    currentFacing = (currentFacing === 'user') ? 'environment' : 'user';
+    showToast('Flipping to ' + (currentFacing === 'user' ? 'Front' : 'Back') + ' Camera');
+    await startLocalCamera();
+    if (activeMediaCall && localStream) {
+      const videoTrack = localStream.getVideoTracks()[0];
+      const sender = activeMediaCall.peerConnection?.getSenders()?.find(s => s.track && s.track.kind === 'video');
+      if (sender && videoTrack) {
+        sender.replaceTrack(videoTrack).catch(e => console.warn(e));
+      }
+    }
+  }
+
+  function leaveVideoCall() {
+    if (callTimerInterval) { clearInterval(callTimerInterval); callTimerInterval = null; }
+    isSeeking = false;
+    if (activeMediaCall) { try { activeMediaCall.close(); } catch(e) {} activeMediaCall = null; }
+    if (activeDataConn) { try { activeDataConn.close(); } catch(e) {} activeDataConn = null; }
+    stopLocalCamera();
+    stopSimulationCanvas();
+    switchScreen('screen-dashboard');
+    showToast('Exited Live Video');
+  }
+
+  function startCallTimer() {
+    callSeconds = 0;
+    if (callTimerInterval) clearInterval(callTimerInterval);
+    callTimerInterval = setInterval(() => {
+      callSeconds++;
+      const m = String(Math.floor(callSeconds / 60)).padStart(2, '0');
+      const s = String(callSeconds % 60).padStart(2, '0');
+      const el = document.getElementById('call-timer');
+      if (el) el.innerText = `Unlimited ${m}:${s}`;
+    }, 1000);
+  }
+
+  // In-call text messages
+  function sendInCallMsg() {
+    const input = document.getElementById('incall-input');
+    const txt = (input?.value || '').trim();
+    if (!txt) return;
+    input.value = '';
+    addInCallBubble('You', txt, true);
+    if (activeDataConn && activeDataConn.open) {
+      activeDataConn.send({ sender: myUser.name, text: txt });
+    }
+  }
+
+  function addInCallBubble(sender, text, isMe) {
+    const box = document.getElementById('incall-msgs');
+    if (!box) return;
+    const div = document.createElement('div');
+    div.className = 'incall-bubble' + (isMe ? ' me' : '');
+    div.innerText = `${sender}: ${text}`;
+    box.appendChild(div);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  // 7. Manual Code Option (Kept as secondary backup)
+  function callByManualCode() {
+    const targetCode = (document.getElementById('target-code-input')?.value || '').trim();
+    if (!targetCode) { showToast('Please enter target 4-digit code'); return; }
+    closeModal('modal-code-backup');
+    initiateCallToMatchedPeer('loverandom-' + targetCode, 'Phone ' + targetCode);
+  }
+
+  // 8. Navigation & UI Helpers
+  function switchScreen(id) {
+    if (id !== 'screen-video-call') stopLocalCamera();
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById(id)?.classList.add('active');
+
+    const nav = document.getElementById('main-nav');
+    if (nav) nav.style.display = (id === 'screen-video-call' || id === 'screen-login') ? 'none' : 'flex';
+
+    if (id === 'screen-dashboard') document.getElementById('nav-btn-live')?.classList.add('active');
+    if (id === 'screen-chats') document.getElementById('nav-btn-chats')?.classList.add('active');
+    if (id === 'screen-profile') document.getElementById('nav-btn-profile')?.classList.add('active');
+  }
+
+  function openModal(id) { document.getElementById(id)?.classList.add('active'); }
+  function closeModal(id) { document.getElementById(id)?.classList.remove('active'); }
+
+  function showToast(msg) {
+    const box = document.getElementById('toast-box');
+    if (!box) return;
+    const t = document.createElement('div');
+    t.className = 'toast';
+    t.innerText = msg;
+    box.appendChild(t);
+    setTimeout(() => t.remove(), 2600);
+  }
+
+  function requestHardwarePermissions() {
+    if (window.AndroidBridge && window.AndroidBridge.requestPermissions) {
+      window.AndroidBridge.requestPermissions();
+      showToast('Requested camera & audio permissions');
+    } else {
+      showToast('Permissions handled by system');
+    }
+  }
+
+  function refreshNativeTelemetry() {
+    if (window.AndroidBridge && window.AndroidBridge.getSystemHealth) {
+      try {
+        const data = JSON.parse(window.AndroidBridge.getSystemHealth());
+        document.getElementById('apm-lat').innerText = data.avgQueryDurationMs + ' ms';
+        document.getElementById('apm-mem').innerText = data.memoryUsagePercent + '% (' + data.status + ')';
+        showToast('Telemetry refreshed from Room DB');
+      } catch(e) {}
+    }
+  }
+
+  // =========================================================================
+  // AUTHENTICATION & LOGIN FLOW
+  // =========================================================================
+  let currentUserSession = null;
+
+  function performSocialLogin(provider) {
+    showToast(`Signing in via ${provider}...`);
+    setTimeout(() => {
+      let userName = 'Alex Walker';
+      let avatar = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80';
+      if (provider === 'Google') {
+        userName = 'Alex (Google)';
+        avatar = 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=120&auto=format&fit=crop&q=80';
+      } else if (provider === 'Facebook') {
+        userName = 'Alex (Facebook)';
+        avatar = 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=120&auto=format&fit=crop&q=80';
+      } else if (provider === 'Apple') {
+        userName = 'Alex (Apple ID)';
+        avatar = 'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=120&auto=format&fit=crop&q=80';
+      } else {
+        userName = 'Guest_' + Math.floor(100 + Math.random() * 900);
+      }
+
+      applyUserSession({
+        name: userName,
+        avatar: avatar,
+        provider: provider
+      });
+      showToast(`Welcome ${userName}! Signed in via ${provider}`);
+    }, 450);
+  }
+
+  function performEmailLogin() {
+    const name = (document.getElementById('login-username')?.value || '').trim() || 'Alex Walker';
+    applyUserSession({
+      name: name,
+      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80',
+      provider: 'Email'
+    });
+    showToast(`Welcome ${name}!`);
+  }
+
+  function applyUserSession(session) {
+    currentUserSession = session;
+    myUser.name = session.name;
+
+    // Update UI elements with logged in user profile
+    const dashName = document.getElementById('dash-name');
+    if (dashName) dashName.innerText = session.name + ', 23';
+    const profName = document.getElementById('profile-name');
+    if (profName) profName.innerText = session.name + ', 23';
+    const dashAvatar = document.getElementById('dash-avatar');
+    if (dashAvatar) dashAvatar.style.backgroundImage = `url('${session.avatar}')`;
+    const profAvatar = document.getElementById('profile-avatar');
+    if (profAvatar) profAvatar.style.backgroundImage = `url('${session.avatar}')`;
+
+    // Navigate to dashboard
+    switchScreen('screen-dashboard');
+  }
+
+  function performLogout() {
+    currentUserSession = null;
+    switchScreen('screen-login');
+    showToast('Signed out successfully');
+  }
+
+  // =========================================================================
+  // ADMIN PORTAL & USER MANAGEMENT (FILTER USERS & SEE LIVE USERS)
+  // =========================================================================
+  let currentAdminFilter = 'all';
+  let adminCachedUsers = [];
+
+  function openAdminPortalModal() {
+    openModal('modal-admin-login');
+    const pwdInput = document.getElementById('admin-pwd-input');
+    if (pwdInput) {
+      pwdInput.value = '';
+      pwdInput.focus();
+    }
+  }
+
+  function verifyAdminPassword() {
+    const pwd = (document.getElementById('admin-pwd-input')?.value || '').trim();
+    if (!pwd) {
+      showToast('Please enter administrator password.');
+      return;
+    }
+
+    let isAuthorized = false;
+    // Verify securely via Native Android Room Database Bridge without exposing password in HTML
+    if (window.AndroidBridge && window.AndroidBridge.verifyAdminCredentials) {
+      isAuthorized = window.AndroidBridge.verifyAdminCredentials(pwd);
+    }
+
+    if (isAuthorized) {
+      closeModal('modal-admin-login');
+      openModal('modal-admin-panel');
+      showToast('Admin Access Granted');
+      loadAdminUsers();
+    } else {
+      showToast('Access Denied: Invalid credentials');
+    }
+  }
+
+  function setAdminFilter(filter) {
+    currentAdminFilter = filter;
+    document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+    document.getElementById('chip-' + filter)?.classList.add('active');
+    renderFilteredAdminUsers();
+  }
+
+  function loadAdminUsers() {
+    let users = [];
+    if (window.AndroidBridge && window.AndroidBridge.getAdminUsersJson) {
+      try {
+        users = JSON.parse(window.AndroidBridge.getAdminUsersJson('all'));
+      } catch (e) {
+        console.error('Failed to parse admin users', e);
+      }
+    }
+
+    if (!users || users.length === 0) {
+      users = [
+        { id: 'u_bihan_admin', username: 'Bihan', name: 'Bihan', role: 'admin', isVip: true, age: 28, city: 'Headquarters', status: 'active', isLive: true, avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=120&auto=format&fit=crop&q=80' },
+        { id: 'u_alex_walker', username: 'alex', name: 'Alex Walker', role: 'user', isVip: true, age: 23, city: 'Colombo', status: 'active', isLive: true, avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80' },
+        { id: 'u_elena_rostova', username: 'elena', name: 'Elena Rostova', role: 'user', isVip: false, age: 24, city: 'Rome', status: 'active', isLive: true, avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=120&auto=format&fit=crop&q=80' },
+        { id: 'u_bad_actor', username: 'troll99', name: 'Jake Spammer', role: 'user', isVip: false, age: 27, city: 'Unknown', status: 'banned', isLive: false, avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=120&auto=format&fit=crop&q=80' }
+      ];
+    }
+
+    adminCachedUsers = users;
+
+    // Update filter counts
+    const totalCount = users.length;
+    const liveCount = users.filter(u => u.isLive).length;
+    const activeCount = users.filter(u => u.status === 'active').length;
+    const bannedCount = users.filter(u => u.status === 'banned').length;
+
+    const elAll = document.getElementById('count-all');
+    if (elAll) elAll.innerText = totalCount;
+    const elLive = document.getElementById('count-live');
+    if (elLive) elLive.innerText = liveCount;
+    const elActive = document.getElementById('count-active');
+    if (elActive) elActive.innerText = activeCount;
+    const elBanned = document.getElementById('count-banned');
+    if (elBanned) elBanned.innerText = bannedCount;
+
+    renderFilteredAdminUsers();
+  }
+
+  function renderFilteredAdminUsers() {
+    const listEl = document.getElementById('admin-users-list');
+    if (!listEl) return;
+
+    let filtered = adminCachedUsers;
+    if (currentAdminFilter === 'live') {
+      filtered = adminCachedUsers.filter(u => u.isLive);
+    } else if (currentAdminFilter === 'active') {
+      filtered = adminCachedUsers.filter(u => u.status === 'active');
+    } else if (currentAdminFilter === 'banned') {
+      filtered = adminCachedUsers.filter(u => u.status === 'banned');
+    }
+
+    if (filtered.length === 0) {
+      listEl.innerHTML = '<div style="text-align: center; color: var(--muted); font-size: 12px; padding: 24px;">No users match this filter.</div>';
+      return;
+    }
+
+    listEl.innerHTML = filtered.map(u => `
+      <div class="admin-user-row">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div class="avatar" style="background-image: url('${u.avatar || ''}'); width: 40px; height: 40px;">
+            ${u.isLive ? '<div class="online"></div>' : ''}
+          </div>
+          <div>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <strong style="font-size: 13px;">${u.name || u.username}</strong>
+              ${u.role === 'admin' ? '<span style="font-size: 9px; background: #8B5CF6; color: #FFF; padding: 1px 5px; border-radius: 4px; font-weight: 700;">ADMIN</span>' : ''}
+              ${u.isVip ? '<span style="font-size: 9px; background: #F59E0B; color: #000; padding: 1px 5px; border-radius: 4px; font-weight: 700;">VIP</span>' : ''}
+            </div>
+            <div style="font-size: 11px; color: var(--muted); margin-top: 2px;">
+              ${u.city || 'Global'} &bull; Status: <span style="color: ${u.status === 'banned' ? '#EF4444' : '#10B981'}; font-weight: 700;">${u.status.toUpperCase()}</span>
+              ${u.isLive ? ' &bull; <span style="color: #34D399; font-weight: 700;">LIVE</span>' : ''}
+            </div>
+          </div>
+        </div>
+        <div>
+          ${u.role !== 'admin' ? `
+            <button class="btn-sec" style="font-size: 11px; padding: 4px 8px; color: ${u.status === 'banned' ? '#10B981' : '#EF4444'}; border-color: ${u.status === 'banned' ? '#10B981' : '#EF4444'};" onclick="toggleAdminUserStatus('${u.id}', '${u.status === 'banned' ? 'active' : 'banned'}')">
+              ${u.status === 'banned' ? 'Unban' : 'Ban'}
+            </button>
+          ` : '<span style="font-size: 11px; color: #A78BFA; font-weight: 700;">Owner</span>'}
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function toggleAdminUserStatus(userId, newStatus) {
+    if (window.AndroidBridge && window.AndroidBridge.toggleUserStatus) {
+      window.AndroidBridge.toggleUserStatus(userId, newStatus);
+    }
+    const target = adminCachedUsers.find(u => u.id === userId);
+    if (target) {
+      target.status = newStatus;
+      if (newStatus === 'banned') target.isLive = false;
+    }
+    showToast(`User status updated to ${newStatus}`);
+    loadAdminUsers();
+  }
+
+  function renderOnlineStrip() {
+    const strip = document.getElementById('live-users-strip');
+    if (!strip) return;
+    strip.innerHTML = sampleUsers.map(u => `
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; flex-shrink: 0;" onclick="startRandomVideoMatch()">
+        <div class="avatar" style="background-image: url('${u.avatar}'); width: 48px; height: 48px;">
+          <div class="online"></div>
+        </div>
+        <span style="font-size: 11px; font-weight: 600;">${u.name}</span>
+      </div>
+    `).join('');
+  }
+
+  function renderChatsList() {
+    const list = document.getElementById('chats-list');
+    if (!list) return;
+    list.innerHTML = sampleUsers.map(u => `
+      <div class="glass" style="display: flex; align-items: center; gap: 12px; cursor: pointer;" onclick="startRandomVideoMatch()">
+        <div class="avatar" style="background-image: url('${u.avatar}');">
+          <div class="online"></div>
+        </div>
+        <div style="flex: 1;">
+          <div style="display: flex; justify-content: space-between;">
+            <strong style="font-size: 13px;">${u.name}, ${u.age}</strong>
+            <span style="font-size: 10px; color: #34D399; font-weight: 700;">LIVE</span>
+          </div>
+          <div style="font-size: 11px; color: var(--muted); margin-top: 2px;">${u.city} &bull; Tap to call</div>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  // Initialization
+  window.addEventListener('DOMContentLoaded', () => {
+    // Start on Login Screen initially
+    switchScreen('screen-login');
+    renderOnlineStrip();
+    renderChatsList();
+    initWebRTC();
+    initMQTTMatchmaking();
+  });
+</script>
+</body>
+</html>
