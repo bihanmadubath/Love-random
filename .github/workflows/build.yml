@@ -9,46 +9,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
       - uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '21'
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-
-      - name: Fix Keystore Location
+      - uses: gradle/actions/setup-gradle@v3
+      - name: Prepare Keystore
         run: |
-          ls -la
-          ls -la app/
-          cp my-upload-key.jks app/my-upload-key.jks || cp ./my-upload-key.jks ./app/my-upload-key.jks || echo "key copy failed"
+          cp my-upload-key.jks app/my-upload-key.jks
           echo "ksp.incremental=false" >> gradle.properties
-          echo "ksp.incremental.intermodule=false" >> gradle.properties
-          echo "org.gradle.configuration-cache=false" >> gradle.properties
           echo "org.gradle.jvmargs=-Djava.awt.headless=true -Xmx4g" >> gradle.properties
-          cat gradle.properties
-          cat app/build.gradle | grep -A 10 signingConfigs
-
-      - name: Build Release AAB
-        run: gradle bundleRelease --no-configuration-cache --no-daemon -Djava.awt.headless=true -Pksp.incremental=false -x lintVitalAnalyzeRelease -x lintVitalReportRelease -x lintVitalRelease --stacktrace
-
-      - name: Build Release APK
-        run: gradle assembleRelease --no-configuration-cache --no-daemon -Djava.awt.headless=true -Pksp.incremental=false -x lintVitalAnalyzeRelease -x lintVitalReportRelease -x lintVitalRelease
-
+      - name: Build AAB
+        run: gradle bundleRelease --no-daemon -Djava.awt.headless=true -Pksp.incremental=false -x lintVitalRelease
+      - name: Build APK
+        run: gradle assembleRelease --no-daemon -Djava.awt.headless=true -Pksp.incremental=false -x lintVitalRelease
       - name: Upload AAB
         uses: actions/upload-artifact@v4
         with:
           name: LoveRandom-RELEASE-AAB
           path: app/build/outputs/bundle/release/*.aab
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: LoveRandom-TEST-APK
-          path: app/build/outputs/apk/release/*.apk          name: LoveRandom-RELEASE-AAB
-          path: app/build/outputs/bundle/release/*.aab
-
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
